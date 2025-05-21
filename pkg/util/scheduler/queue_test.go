@@ -599,3 +599,39 @@ func TestQueue(t *testing.T) {
 		require.ErrorIs(t, err, ErrQueueClosed)
 	})
 }
+
+func TestQueueActiveTenantsLen(t *testing.T) {
+	t.Parallel()
+
+	q := NewQueue(QueueOptionsWithDefaults(nil))
+	defer q.Close()
+	defer q.StopWait()
+
+	// Enqueue items for different tenants
+	err := q.Enqueue(context.Background(), "tenant1", func() {})
+	require.NoError(t, err)
+	err = q.Enqueue(context.Background(), "tenant2", func() {})
+	require.NoError(t, err)
+
+	// Check active tenants
+	activeTenants := q.ActiveTenantsLen()
+	require.Equal(t, activeTenants, 2)
+}
+
+func TestQueueLen(t *testing.T) {
+	t.Parallel()
+
+	q := NewQueue(QueueOptionsWithDefaults(nil))
+	defer q.Close()
+	defer q.StopWait()
+
+	// Enqueue items
+	err := q.Enqueue(context.Background(), "tenant1", func() {})
+	require.NoError(t, err)
+	err = q.Enqueue(context.Background(), "tenant1", func() {})
+	require.NoError(t, err)
+
+	// Check queue length
+	queueLen := q.Len()
+	require.Equal(t, queueLen, 2)
+}
