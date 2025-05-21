@@ -186,7 +186,7 @@ func (q *Queue) handleEnqueueRequest(req enqueueRequest) {
 	if !exists {
 		tq = &tenantQueue{
 			id:    req.tenantID,
-			tasks: make([]func(), 0, 8),
+			items: make([]func(), 0, 8),
 		}
 		q.tenantQueues[req.tenantID] = tq
 	}
