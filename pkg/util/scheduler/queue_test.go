@@ -604,8 +604,10 @@ func TestQueueActiveTenantsLen(t *testing.T) {
 	t.Parallel()
 
 	q := NewQueue(QueueOptionsWithDefaults(nil))
-	defer q.Close()
-	defer q.StopWait()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	defer q.Close(ctx)
+	defer q.StopWait(ctx)
 
 	// Enqueue items for different tenants
 	err := q.Enqueue(context.Background(), "tenant1", func() {})
@@ -618,12 +620,17 @@ func TestQueueActiveTenantsLen(t *testing.T) {
 	require.Equal(t, activeTenants, 2)
 }
 
+// TestQueueLen tests the Len method of the queue. It ensures that the
+// method returns the correct number of items in the queue after enqueuing
+// items for different tenants.
 func TestQueueLen(t *testing.T) {
 	t.Parallel()
 
 	q := NewQueue(QueueOptionsWithDefaults(nil))
-	defer q.Close()
-	defer q.StopWait()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	defer q.Close(ctx)
+	defer q.StopWait(ctx)
 
 	// Enqueue items
 	err := q.Enqueue(context.Background(), "tenant1", func() {})
