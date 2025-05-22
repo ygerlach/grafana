@@ -604,10 +604,15 @@ func TestQueueActiveTenantsLen(t *testing.T) {
 	t.Parallel()
 
 	q := NewQueue(QueueOptionsWithDefaults(nil))
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	defer q.Close(ctx)
-	defer q.StopWait(ctx)
+	q.StartAsync(context.Background())
+	q.AwaitRunning(context.Background())
+
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		q.StopAsync()
+		q.AwaitTerminated(ctx)
+	}()
 
 	// Enqueue items for different tenants
 	err := q.Enqueue(context.Background(), "tenant1", func() {})
@@ -627,10 +632,15 @@ func TestQueueLen(t *testing.T) {
 	t.Parallel()
 
 	q := NewQueue(QueueOptionsWithDefaults(nil))
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	defer q.Close(ctx)
-	defer q.StopWait(ctx)
+	q.StartAsync(context.Background())
+	q.AwaitRunning(context.Background())
+
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		q.StopAsync()
+		q.AwaitTerminated(ctx)
+	}()
 
 	// Enqueue items
 	err := q.Enqueue(context.Background(), "tenant1", func() {})
