@@ -35,13 +35,13 @@ import (
 )
 
 type Options struct {
-	Cfg          *setting.Cfg
-	Features     featuremgmt.FeatureToggles
-	DB           infraDB.DB
-	Tracer       tracing.Tracer
-	Reg          prometheus.Registerer
-	AccessClient types.AccessClient
-	Docs         resource.DocumentBuilderSupplier
+	Cfg      *setting.Cfg
+	Features featuremgmt.FeatureToggles
+	DB       infraDB.DB
+	Tracer   tracing.Tracer
+	Reg      prometheus.Registerer
+	Authzc   types.AccessClient
+	Docs     resource.DocumentBuilderSupplier
 }
 
 type clientMetrics struct {
@@ -63,7 +63,7 @@ func ProvideUnifiedStorageClient(opts *Options,
 		Address:            apiserverCfg.Key("address").MustString(""), // client address
 		BlobStoreURL:       apiserverCfg.Key("blob_url").MustString(""),
 		BlobThresholdBytes: apiserverCfg.Key("blob_threshold_bytes").MustInt(options.BlobThresholdDefault),
-	}, opts.Cfg, opts.Features, opts.DB, opts.Tracer, opts.Reg, opts.AccessClient, opts.Docs, storageMetrics, indexMetrics, qosMetrics)
+	}, opts.Cfg, opts.Features, opts.DB, opts.Tracer, opts.Reg, opts.Authzc, opts.Docs, storageMetrics, indexMetrics, qosMetrics)
 	if err == nil {
 		// Used to get the folder stats
 		client = federated.NewFederatedClient(
@@ -81,7 +81,7 @@ func newClient(opts options.StorageOptions,
 	db infraDB.DB,
 	tracer tracing.Tracer,
 	reg prometheus.Registerer,
-	accessClient types.AccessClient,
+	authzc types.AccessClient,
 	docs resource.DocumentBuilderSupplier,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
@@ -162,7 +162,7 @@ func newClient(opts options.StorageOptions,
 			Cfg:            cfg,
 			Tracer:         tracer,
 			Reg:            reg,
-			AccessClient:   accessClient,
+			AccessClient:   authzc,
 			SearchOptions:  searchOptions,
 			StorageMetrics: storageMetrics,
 			IndexMetrics:   indexMetrics,
