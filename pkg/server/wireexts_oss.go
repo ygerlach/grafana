@@ -162,6 +162,7 @@ var wireExtsModuleServerSet = wire.NewSet(
 	// Unified storage
 	resource.ProvideStorageMetrics,
 	resource.ProvideIndexMetrics,
+	resource.ProvideQOSMetrics,
 )
 
 var wireExtsStandaloneAPIServerSet = wire.NewSet(

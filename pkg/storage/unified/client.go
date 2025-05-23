@@ -53,7 +53,7 @@ type clientMetrics struct {
 func ProvideUnifiedStorageClient(opts *Options,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
-	qosMetrics *sql.QOSMetrics,
+	qosMetrics *resource.QOSMetrics,
 ) (resource.ResourceClient, error) {
 	// See: apiserver.applyAPIServerConfig(cfg, features, o)
 	apiserverCfg := opts.Cfg.SectionWithEnvOverrides("grafana-apiserver")
@@ -85,7 +85,7 @@ func newClient(opts options.StorageOptions,
 	docs resource.DocumentBuilderSupplier,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
-	qosMetrics *sql.QOSMetrics,
+	qosMetrics *resource.QOSMetrics,
 ) (resource.ResourceClient, error) {
 	ctx := context.Background()
 	switch opts.StorageType {

@@ -90,6 +90,7 @@ func ProvideUnifiedStorageGrpcService(
 	docBuilders resource.DocumentBuilderSupplier,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
+	qosMetrics *resource.QOSMetrics,
 	storageRing *ring.Ring,
 	memberlistKVConfig kv.Config,
 ) (UnifiedStorageGrpcService, error) {
@@ -162,7 +163,6 @@ func ProvideUnifiedStorageGrpcService(
 	}
 
 	if cfg.EnableQOS {
-		qosMetrics := ProvideQOSMetrics(reg)
 		queue := scheduler.NewQueue(&scheduler.QueueOptions{
 			MaxSizePerTenant:  cfg.MaxSizePerTenantQOS,
 			QueueLength:       qosMetrics.QueueLength,

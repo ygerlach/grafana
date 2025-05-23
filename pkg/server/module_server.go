@@ -36,11 +36,12 @@ func NewModule(opts Options,
 	cfg *setting.Cfg,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
+	qosMetrics *resource.QOSMetrics,
 	reg prometheus.Registerer,
 	promGatherer prometheus.Gatherer,
 	license licensing.Licensing,
 ) (*ModuleServer, error) {
-	s, err := newModuleServer(opts, apiOpts, features, cfg, storageMetrics, indexMetrics, reg, promGatherer, license)
+	s, err := newModuleServer(opts, apiOpts, features, cfg, storageMetrics, indexMetrics, qosMetrics, reg, promGatherer, license)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +53,17 @@ func NewModule(opts Options,
 	return s, nil
 }
 
-func newModuleServer(opts Options, apiOpts api.ServerOptions, features featuremgmt.FeatureToggles, cfg *setting.Cfg, storageMetrics *resource.StorageMetrics, indexMetrics *resource.BleveIndexMetrics, reg prometheus.Registerer, promGatherer prometheus.Gatherer, license licensing.Licensing) (*ModuleServer, error) {
+func newModuleServer(opts Options,
+	apiOpts api.ServerOptions,
+	features featuremgmt.FeatureToggles,
+	cfg *setting.Cfg,
+	storageMetrics *resource.StorageMetrics,
+	indexMetrics *resource.BleveIndexMetrics,
+	qosMetrics *resource.QOSMetrics,
+	reg prometheus.Registerer,
+	promGatherer prometheus.Gatherer,
+	license licensing.Licensing,
+) (*ModuleServer, error) {
 	rootCtx, shutdownFn := context.WithCancel(context.Background())
 
 	s := &ModuleServer{
@@ -96,6 +107,7 @@ type ModuleServer struct {
 	mtx              sync.Mutex
 	storageMetrics   *resource.StorageMetrics
 	indexMetrics     *resource.BleveIndexMetrics
+	qosMetrics       *resource.QOSMetrics
 	license          licensing.Licensing
 
 	pidFile     string
@@ -173,7 +185,7 @@ func (s *ModuleServer) Run() error {
 		if err != nil {
 			return nil, err
 		}
-		return sql.ProvideUnifiedStorageGrpcService(s.cfg, s.features, nil, s.log, nil, docBuilders, s.storageMetrics, s.indexMetrics, s.storageRing, s.MemberlistKVConfig)
+		return sql.ProvideUnifiedStorageGrpcService(s.cfg, s.features, nil, s.log, nil, docBuilders, s.storageMetrics, s.indexMetrics, s.qosMetrics, s.storageRing, s.MemberlistKVConfig)
 	})
 
 	m.RegisterModule(modules.ZanzanaServer, func() (services.Service, error) {
