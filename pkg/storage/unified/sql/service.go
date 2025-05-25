@@ -54,6 +54,7 @@ type service struct {
 	// Subservices manager
 	subservices        *services.Manager
 	subservicesWatcher *services.FailureWatcher
+	hasSubservices     bool
 
 	cfg       *setting.Cfg
 	features  featuremgmt.FeatureToggles
@@ -110,18 +111,19 @@ func ProvideUnifiedStorageGrpcService(
 	})
 
 	s := &service{
-		cfg:            cfg,
-		features:       features,
-		stopCh:         make(chan struct{}),
-		authenticator:  authn,
-		tracing:        tracer,
-		db:             db,
-		log:            log,
-		reg:            reg,
-		docBuilders:    docBuilders,
-		storageMetrics: storageMetrics,
-		indexMetrics:   indexMetrics,
-		storageRing:    storageRing,
+		cfg:                cfg,
+		features:           features,
+		stopCh:             make(chan struct{}),
+		authenticator:      authn,
+		tracing:            tracer,
+		db:                 db,
+		log:                log,
+		reg:                reg,
+		docBuilders:        docBuilders,
+		storageMetrics:     storageMetrics,
+		indexMetrics:       indexMetrics,
+		storageRing:        storageRing,
+		subservicesWatcher: services.NewFailureWatcher(),
 	}
 
 	subservices := []services.Service{}
@@ -174,7 +176,7 @@ func ProvideUnifiedStorageGrpcService(
 			Logger:     log,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create scheduler: %s", err)
+			return nil, fmt.Errorf("failed to create qos scheduler: %s", err)
 		}
 
 		s.queue = queue
@@ -182,22 +184,26 @@ func ProvideUnifiedStorageGrpcService(
 		subservices = append(subservices, s.scheduler)
 	}
 
-	s.subservices, err = services.NewManager(subservices...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create subservices manager: %w", err)
+	if len(subservices) > 0 {
+		s.hasSubservices = true
+		s.subservices, err = services.NewManager(subservices...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create subservices manager: %w", err)
+		}
 	}
 
 	// This will be used when running as a dskit service
-	s.BasicService = services.NewBasicService(s.start, s.running, s.stopping).WithName(modules.StorageServer)
+	s.BasicService = services.NewBasicService(s.starting, s.running, s.stopping).WithName(modules.StorageServer)
 
 	return s, nil
 }
 
-func (s *service) start(ctx context.Context) error {
-	s.subservicesWatcher.WatchManager(s.subservices)
-
-	if err := services.StartManagerAndAwaitHealthy(ctx, s.subservices); err != nil {
-		return fmt.Errorf("failed to start subservices: %w", err)
+func (s *service) starting(ctx context.Context) error {
+	if s.hasSubservices {
+		s.subservicesWatcher.WatchManager(s.subservices)
+		if err := services.StartManagerAndAwaitHealthy(ctx, s.subservices); err != nil {
+			return fmt.Errorf("failed to start subservices: %w", err)
+		}
 	}
 
 	authzClient, err := authz.ProvideStandaloneAuthZClient(s.cfg, s.features, s.tracing)
@@ -286,11 +292,23 @@ func (s *service) GetAddress() string {
 func (s *service) running(ctx context.Context) error {
 	select {
 	case err := <-s.stoppedCh:
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			return err
 		}
+	case err := <-s.subservicesWatcher.Chan():
+		return fmt.Errorf("subservice failure: %w", err)
 	case <-ctx.Done():
 		close(s.stopCh)
+	}
+	return nil
+}
+
+func (s *service) stopping(_ error) error {
+	if s.hasSubservices {
+		err := services.StopManagerAndAwaitStopped(context.Background(), s.subservices)
+		if err != nil {
+			return fmt.Errorf("scheduler: failed to stop subservices: %w", err)
+		}
 	}
 	return nil
 }
@@ -378,14 +396,6 @@ func NewAuthenticatorWithFallback(cfg *setting.Cfg, reg prometheus.Registerer, t
 		}
 		return a.Authenticate(ctx)
 	}
-}
-
-func (s *service) stopping(err error) error {
-	if err != nil && !errors.Is(err, context.Canceled) {
-		s.log.Error("stopping unified storage grpc service", "error", err)
-		return err
-	}
-	return nil
 }
 
 func toLifecyclerConfig(cfg *setting.Cfg, logger log.Logger) (ring.BasicLifecyclerConfig, error) {
