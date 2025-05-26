@@ -8,6 +8,7 @@ import (
 
 	"github.com/grafana/dskit/services"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 const (
@@ -17,6 +18,8 @@ const (
 
 var ErrQueueClosed = errors.New("queue closed")
 var ErrTenantQueueFull = errors.New("tenant queue full")
+var ErrNilRunnable = errors.New("cannot enqueue nil runnable")
+var ErrMissingTenantID = errors.New("item requires TenantID")
 
 type tenantQueue struct {
 	id       string
@@ -37,25 +40,8 @@ func (tq *tenantQueue) isEmpty() bool {
 func (tq *tenantQueue) isFull(maxSize int) bool {
 	return maxSize > 0 && len(tq.items) >= maxSize
 }
-func (tq *tenantQueue) addRunnable(runnable func()) {
+func (tq *tenantQueue) addItem(runnable func()) {
 	tq.items = append(tq.items, runnable)
-}
-func (tq *tenantQueue) removeRunnable() {
-	if len(tq.items) > 0 {
-		tq.items = tq.items[1:]
-	}
-	if len(tq.items) == 0 {
-		tq.isActive = false
-	}
-}
-func (tq *tenantQueue) getRunnable() func() {
-	if len(tq.items) > 0 {
-		return tq.items[0]
-	}
-	return nil
-}
-func (tq *tenantQueue) setActive() {
-	tq.isActive = true
 }
 
 type enqueueRequest struct {
@@ -71,7 +57,6 @@ type dequeueRequest struct {
 
 type dequeueResponse struct {
 	runnable func()
-	ok       bool
 	err      error
 }
 
@@ -111,10 +96,9 @@ type Queue struct {
 }
 
 type QueueOptions struct {
-	MaxSizePerTenant  int
-	QueueLength       *prometheus.GaugeVec   // per tenant
-	DiscardedRequests *prometheus.CounterVec // per tenant
-	EnqueueDuration   prometheus.Histogram
+	Namespace        string
+	MaxSizePerTenant int
+	Registerer       prometheus.Registerer
 }
 
 // NewQueue creates a new Queue and starts its dispatcher goroutine.
@@ -134,25 +118,28 @@ func NewQueue(opts *QueueOptions) *Queue {
 		activeTenants:          list.New(),
 		pendingDequeueRequests: list.New(),
 		maxSizePerTenant:       opts.MaxSizePerTenant,
-
-		// Metrics
-		queueLength:       opts.QueueLength,
-		discardedRequests: opts.DiscardedRequests,
-		enqueueDuration:   opts.EnqueueDuration,
 	}
+
+	q.queueLength = promauto.With(opts.Registerer).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: opts.Namespace,
+		Name:      "qos_queue_length",
+		Help:      "Number of items in the queue",
+	}, []string{"namespace"})
+	q.discardedRequests = promauto.With(opts.Registerer).NewCounterVec(prometheus.CounterOpts{
+		Namespace: opts.Namespace,
+		Name:      "qos_discarded_requests_total",
+		Help:      "Total number of discarded requests",
+	}, []string{"namespace", "reason"})
+	q.enqueueDuration = promauto.With(opts.Registerer).NewHistogram(prometheus.HistogramOpts{
+		Namespace: opts.Namespace,
+		Name:      "qos_enqueue_duration_seconds",
+		Help:      "Duration of enqueue operation in seconds",
+		Buckets:   prometheus.DefBuckets,
+	})
 
 	q.Service = services.NewBasicService(nil, q.dispatcherLoop, q.stopping)
 
 	return q
-}
-
-func (q *Queue) shouldExit() bool {
-	select {
-	case <-q.dispatcherStoppedChan:
-		return true
-	default:
-		return false
-	}
 }
 
 func (q *Queue) scheduleRoundRobin() {
@@ -170,20 +157,19 @@ func (q *Queue) scheduleRoundRobin() {
 		req := reqElem.Value.(*dequeueRequest)
 		tq := tenantElem.Value.(*tenantQueue)
 
-		// Skip empty tenant queues by removing them and continuing
-		if tq.isEmpty() {
-			tq.clear()
-			q.activeTenants.Remove(tenantElem)
-			continue
-		}
-
 		// Get and deliver the runnable item
-		item := tq.getRunnable()
-		req.respChan <- dequeueResponse{runnable: item, ok: true, err: nil}
+		item := tq.items[0]
+		req.respChan <- dequeueResponse{runnable: item, err: nil}
 
 		// Update bookkeeping
 		q.pendingDequeueRequests.Remove(reqElem)
-		tq.removeRunnable()
+		tq.items = tq.items[1:]
+		if tq.isEmpty() {
+			tq.clear()
+			q.activeTenants.Remove(tenantElem)
+		}
+
+		// Update metrics
 		q.queueLength.WithLabelValues(tq.id).Set(float64(len(tq.items)))
 
 		// Round-robin: move to back if tenant still has items, otherwise remove
@@ -211,12 +197,12 @@ func (q *Queue) handleEnqueueRequest(req enqueueRequest) {
 		return
 	}
 
-	tq.addRunnable(req.runnable)
+	tq.addItem(req.runnable)
 	q.queueLength.WithLabelValues(req.tenantID).Set(float64(len(tq.items)))
 
 	if !tq.isActive {
 		q.activeTenants.PushBack(tq)
-		tq.setActive()
+		tq.isActive = true
 	}
 
 	req.respChan <- nil
@@ -238,10 +224,6 @@ func (q *Queue) dispatcherLoop(ctx context.Context) error {
 	defer close(q.dispatcherStoppedChan)
 
 	for {
-		if q.shouldExit() {
-			return nil
-		}
-
 		q.scheduleRoundRobin()
 
 		select {
@@ -267,10 +249,14 @@ func (q *Queue) dispatcherLoop(ctx context.Context) error {
 // It blocks only if the dispatcher is busy or the tenant queue is full.
 func (q *Queue) Enqueue(ctx context.Context, tenantID string, runnable func()) error {
 	if runnable == nil {
-		return errors.New("cannot enqueue nil runnable")
+		return ErrNilRunnable
 	}
 	if tenantID == "" {
-		return errors.New("item requires TenantID")
+		return ErrMissingTenantID
+	}
+
+	if q.State() != services.Running {
+		return ErrQueueClosed
 	}
 
 	start := time.Now()
@@ -301,7 +287,11 @@ func (q *Queue) Enqueue(ctx context.Context, tenantID string, runnable func()) e
 // Dequeue removes and returns a work item from the qos using linked-list round-robin.
 // It blocks until an item is available for any tenant, the queue is closed,
 // or the context is cancelled.
-func (q *Queue) Dequeue(ctx context.Context) (func(), bool, error) {
+func (q *Queue) Dequeue(ctx context.Context) (func(), error) {
+	if q.State() != services.Running {
+		return nil, ErrQueueClosed
+	}
+
 	respChan := make(chan dequeueResponse, 1)
 	req := dequeueRequest{
 		ctx:      ctx,
@@ -312,21 +302,16 @@ func (q *Queue) Dequeue(ctx context.Context) (func(), bool, error) {
 	case q.dequeueChan <- req:
 		select {
 		case resp := <-respChan:
-			return resp.runnable, resp.ok, resp.err
+			return resp.runnable, resp.err
 		case <-ctx.Done():
-			return nil, false, ctx.Err()
-		case <-q.dispatcherStoppedChan:
-			select {
-			case resp := <-respChan:
-				return resp.runnable, resp.ok, resp.err
-			default:
-				return nil, false, ErrQueueClosed
-			}
+			return nil, ctx.Err()
+		case resp := <-respChan:
+			return resp.runnable, resp.err
 		}
 	case <-ctx.Done():
-		return nil, false, ctx.Err()
+		return nil, ctx.Err()
 	case <-q.dispatcherStoppedChan:
-		return nil, false, ErrQueueClosed
+		return nil, ErrQueueClosed
 	}
 }
 
