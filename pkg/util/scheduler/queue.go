@@ -24,32 +24,23 @@ type tenantQueue struct {
 	isActive bool
 }
 
-func (tq *tenantQueue) Len() int {
+func (tq *tenantQueue) len() int {
 	return len(tq.items)
 }
-func (tq *tenantQueue) ID() string {
-	return tq.id
-}
-func (tq *tenantQueue) Items() []func() {
-	return tq.items
-}
-func (tq *tenantQueue) SetItems(items []func()) {
-	tq.items = items
-}
-func (tq *tenantQueue) Clear() {
+func (tq *tenantQueue) clear() {
 	tq.items = nil
 	tq.isActive = false
 }
-func (tq *tenantQueue) IsEmpty() bool {
+func (tq *tenantQueue) isEmpty() bool {
 	return len(tq.items) == 0
 }
-func (tq *tenantQueue) IsFull(maxSize int) bool {
+func (tq *tenantQueue) isFull(maxSize int) bool {
 	return maxSize > 0 && len(tq.items) >= maxSize
 }
-func (tq *tenantQueue) AddRunnable(runnable func()) {
+func (tq *tenantQueue) addRunnable(runnable func()) {
 	tq.items = append(tq.items, runnable)
 }
-func (tq *tenantQueue) RemoveRunnable() {
+func (tq *tenantQueue) removeRunnable() {
 	if len(tq.items) > 0 {
 		tq.items = tq.items[1:]
 	}
@@ -57,13 +48,13 @@ func (tq *tenantQueue) RemoveRunnable() {
 		tq.isActive = false
 	}
 }
-func (tq *tenantQueue) GetRunnable() func() {
+func (tq *tenantQueue) getRunnable() func() {
 	if len(tq.items) > 0 {
 		return tq.items[0]
 	}
 	return nil
 }
-func (tq *tenantQueue) SetActive() {
+func (tq *tenantQueue) setActive() {
 	tq.isActive = true
 }
 
@@ -180,23 +171,23 @@ func (q *Queue) scheduleRoundRobin() {
 		tq := tenantElem.Value.(*tenantQueue)
 
 		// Skip empty tenant queues by removing them and continuing
-		if tq.IsEmpty() {
-			tq.Clear()
+		if tq.isEmpty() {
+			tq.clear()
 			q.activeTenants.Remove(tenantElem)
 			continue
 		}
 
 		// Get and deliver the runnable item
-		item := tq.GetRunnable()
+		item := tq.getRunnable()
 		req.respChan <- dequeueResponse{runnable: item, ok: true, err: nil}
 
 		// Update bookkeeping
 		q.pendingDequeueRequests.Remove(reqElem)
-		tq.RemoveRunnable()
+		tq.removeRunnable()
 		q.queueLength.WithLabelValues(tq.id).Set(float64(len(tq.items)))
 
 		// Round-robin: move to back if tenant still has items, otherwise remove
-		if tq.IsEmpty() {
+		if tq.isEmpty() {
 			q.activeTenants.Remove(tenantElem)
 		} else {
 			q.activeTenants.MoveToBack(tenantElem)
@@ -214,18 +205,18 @@ func (q *Queue) handleEnqueueRequest(req enqueueRequest) {
 		q.tenantQueues[req.tenantID] = tq
 	}
 
-	if tq.IsFull(q.maxSizePerTenant) {
+	if tq.isFull(q.maxSizePerTenant) {
 		q.discardedRequests.WithLabelValues(req.tenantID, "queue_full").Inc()
 		req.respChan <- ErrTenantQueueFull
 		return
 	}
 
-	tq.AddRunnable(req.runnable)
+	tq.addRunnable(req.runnable)
 	q.queueLength.WithLabelValues(req.tenantID).Set(float64(len(tq.items)))
 
 	if !tq.isActive {
 		q.activeTenants.PushBack(tq)
-		tq.SetActive()
+		tq.setActive()
 	}
 
 	req.respChan <- nil
@@ -238,7 +229,7 @@ func (q *Queue) handleDequeueRequest(req dequeueRequest) {
 func (q *Queue) handleLenRequest(req lenRequest) {
 	total := 0
 	for _, tq := range q.tenantQueues {
-		total += tq.Len()
+		total += tq.len()
 	}
 	req.respChan <- total
 }
@@ -379,7 +370,7 @@ func (q *Queue) stopping(_ error) error {
 	q.queueLength.Reset()
 	q.discardedRequests.Reset()
 	for _, tq := range q.tenantQueues {
-		tq.Clear()
+		tq.clear()
 	}
 	q.activeTenants.Init()
 	q.pendingDequeueRequests.Init()
