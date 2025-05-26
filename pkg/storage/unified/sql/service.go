@@ -91,7 +91,6 @@ func ProvideUnifiedStorageGrpcService(
 	docBuilders resource.DocumentBuilderSupplier,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
-	qosMetrics *resource.QOSMetrics,
 	storageRing *ring.Ring,
 	memberlistKVConfig kv.Config,
 ) (UnifiedStorageGrpcService, error) {
@@ -164,15 +163,16 @@ func ProvideUnifiedStorageGrpcService(
 		subservices = append(subservices, s.storageRing, s.lifecycler)
 	}
 
-	if cfg.EnableQOS {
+	if cfg.QOSEnabled {
 		queue := scheduler.NewQueue(&scheduler.QueueOptions{
-			MaxSizePerTenant:  cfg.MaxSizePerTenantQOS,
-			QueueLength:       qosMetrics.QueueLength,
-			DiscardedRequests: qosMetrics.DiscardedRequests,
-			EnqueueDuration:   qosMetrics.EnqueueDuration,
+			MaxSizePerTenant: cfg.QOSMaxSizePerTenant,
+			// Metrics options
+			Registerer:       reg,
+			MetricsNamespace: "resource_server",
+			MetricsSubsystem: "qos",
 		})
 		scheduler, err := scheduler.NewScheduler(queue, &scheduler.Config{
-			NumWorkers: cfg.NumWorkerQOS,
+			NumWorkers: cfg.QOSNumberWorker,
 			Logger:     log,
 		})
 		if err != nil {

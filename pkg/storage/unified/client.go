@@ -53,7 +53,6 @@ type clientMetrics struct {
 func ProvideUnifiedStorageClient(opts *Options,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
-	qosMetrics *resource.QOSMetrics,
 ) (resource.ResourceClient, error) {
 	// See: apiserver.applyAPIServerConfig(cfg, features, o)
 	apiserverCfg := opts.Cfg.SectionWithEnvOverrides("grafana-apiserver")
@@ -63,7 +62,7 @@ func ProvideUnifiedStorageClient(opts *Options,
 		Address:            apiserverCfg.Key("address").MustString(""), // client address
 		BlobStoreURL:       apiserverCfg.Key("blob_url").MustString(""),
 		BlobThresholdBytes: apiserverCfg.Key("blob_threshold_bytes").MustInt(options.BlobThresholdDefault),
-	}, opts.Cfg, opts.Features, opts.DB, opts.Tracer, opts.Reg, opts.Authzc, opts.Docs, storageMetrics, indexMetrics, qosMetrics)
+	}, opts.Cfg, opts.Features, opts.DB, opts.Tracer, opts.Reg, opts.Authzc, opts.Docs, storageMetrics, indexMetrics)
 	if err == nil {
 		// Used to get the folder stats
 		client = federated.NewFederatedClient(
@@ -85,7 +84,6 @@ func newClient(opts options.StorageOptions,
 	docs resource.DocumentBuilderSupplier,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
-	qosMetrics *resource.QOSMetrics,
 ) (resource.ResourceClient, error) {
 	ctx := context.Background()
 	switch opts.StorageType {
@@ -169,17 +167,19 @@ func newClient(opts options.StorageOptions,
 			Features:       features,
 		}
 
-		if cfg.EnableQOS {
+		if cfg.QOSEnabled {
 			queueOptions := &scheduler.QueueOptions{
-				MaxSizePerTenant:  cfg.MaxSizePerTenantQOS,
-				QueueLength:       qosMetrics.QueueLength,
-				DiscardedRequests: qosMetrics.DiscardedRequests,
-				EnqueueDuration:   qosMetrics.EnqueueDuration,
+				MaxSizePerTenant: cfg.QOSMaxSizePerTenant,
+
+				// Metrics options
+				Registerer:       reg,
+				MetricsNamespace: "resource_server",
+				MetricsSubsystem: "qos",
 			}
 
 			queue := scheduler.NewQueue(queueOptions)
 			scheduler, err := scheduler.NewScheduler(queue, &scheduler.Config{
-				NumWorkers: cfg.NumWorkerQOS,
+				NumWorkers: cfg.QOSNumberWorker,
 				Logger:     cfg.Logger,
 			})
 			if err != nil {

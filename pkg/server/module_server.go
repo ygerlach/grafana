@@ -36,12 +36,11 @@ func NewModule(opts Options,
 	cfg *setting.Cfg,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
-	qosMetrics *resource.QOSMetrics,
 	reg prometheus.Registerer,
 	promGatherer prometheus.Gatherer,
 	license licensing.Licensing,
 ) (*ModuleServer, error) {
-	s, err := newModuleServer(opts, apiOpts, features, cfg, storageMetrics, indexMetrics, qosMetrics, reg, promGatherer, license)
+	s, err := newModuleServer(opts, apiOpts, features, cfg, storageMetrics, indexMetrics, reg, promGatherer, license)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +58,6 @@ func newModuleServer(opts Options,
 	cfg *setting.Cfg,
 	storageMetrics *resource.StorageMetrics,
 	indexMetrics *resource.BleveIndexMetrics,
-	qosMetrics *resource.QOSMetrics,
 	reg prometheus.Registerer,
 	promGatherer prometheus.Gatherer,
 	license licensing.Licensing,
@@ -81,7 +79,6 @@ func newModuleServer(opts Options,
 		buildBranch:      opts.BuildBranch,
 		storageMetrics:   storageMetrics,
 		indexMetrics:     indexMetrics,
-		qosMetrics:       qosMetrics,
 		promGatherer:     promGatherer,
 		registerer:       reg,
 		license:          license,
@@ -108,7 +105,6 @@ type ModuleServer struct {
 	mtx              sync.Mutex
 	storageMetrics   *resource.StorageMetrics
 	indexMetrics     *resource.BleveIndexMetrics
-	qosMetrics       *resource.QOSMetrics
 	license          licensing.Licensing
 
 	pidFile     string
@@ -186,7 +182,7 @@ func (s *ModuleServer) Run() error {
 		if err != nil {
 			return nil, err
 		}
-		return sql.ProvideUnifiedStorageGrpcService(s.cfg, s.features, nil, s.log, nil, docBuilders, s.storageMetrics, s.indexMetrics, s.qosMetrics, s.storageRing, s.MemberlistKVConfig)
+		return sql.ProvideUnifiedStorageGrpcService(s.cfg, s.features, nil, s.log, nil, docBuilders, s.storageMetrics, s.indexMetrics, s.storageRing, s.MemberlistKVConfig)
 	})
 
 	m.RegisterModule(modules.ZanzanaServer, func() (services.Service, error) {

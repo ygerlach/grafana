@@ -556,9 +556,9 @@ type Cfg struct {
 	IndexFileThreshold                         int
 	IndexMinCount                              int
 	EnableSharding                             bool
-	EnableQOS                                  bool
-	NumWorkerQOS                               int
-	MaxSizePerTenantQOS                        int
+	QOSEnabled                                 bool
+	QOSNumberWorker                            int
+	QOSMaxSizePerTenant                        int
 	MemberlistBindAddr                         string
 	MemberlistAdvertiseAddr                    string
 	MemberlistJoinMember                       string

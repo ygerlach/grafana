@@ -428,7 +428,6 @@ var wireBasicSet = wire.NewSet(
 	// Unified storage
 	resource.ProvideStorageMetrics,
 	resource.ProvideIndexMetrics,
-	resource.ProvideQOSMetrics,
 	// Kubernetes API server
 	grafanaapiserver.WireSet,
 	apiregistry.WireSet,
