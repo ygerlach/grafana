@@ -20,6 +20,7 @@ import (
 	"github.com/grafana/dskit/flagext"
 	"github.com/grafana/dskit/grpcclient"
 	"github.com/grafana/dskit/middleware"
+	"github.com/grafana/dskit/services"
 
 	infraDB "github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/tracing"
@@ -183,16 +184,12 @@ func newClient(opts options.StorageOptions,
 				Logger:     cfg.Logger,
 			})
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to create scheduler: %w", err)
 			}
 
-			err = scheduler.StartAsync(ctx)
+			err = services.StartAndAwaitRunning(ctx, scheduler)
 			if err != nil {
-				return nil, err
-			}
-			err = scheduler.AwaitRunning(ctx)
-			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to start scheduler: %w", err)
 			}
 			serverOptions.QOSQueue = queue
 		}
